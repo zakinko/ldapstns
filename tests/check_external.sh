@@ -27,6 +27,7 @@ check_upstream=0
 [ "${1:-}" = "--upstream" ] && check_upstream=1
 
 failures=0
+skipped=0
 
 fail() {
 	echo "FAIL - $1" >&2
@@ -127,7 +128,17 @@ while read -r kind a b c d; do
 			    "$WORK/head.json" | head -1)
 		fi
 		if [ -z "$head" ]; then
-			echo "warn - could not ask github for $repo, skipping" >&2
+			# Also what a private repository looks like from here.
+			# The integrity half above still checked every file
+			# against its checksum, so this is a check that could
+			# not run rather than a check that failed - but it is
+			# worth saying which repository went quiet, because a
+			# manifest nobody can verify is one nobody will notice
+			# rotting.
+			echo "warn - could not ask github for $repo; it may be" \
+			    "private or unreachable, so its freshness is" \
+			    "unchecked" >&2
+			skipped=$((skipped + 1))
 		elif [ "$head" = "$ref" ]; then
 			echo "ok   - $component is at upstream HEAD ($(echo "$ref" | cut -c1-12))"
 		else
@@ -147,7 +158,6 @@ while read -r kind a b c d; do
 		name=$(echo "$b" | tr / _)
 		url="https://raw.githubusercontent.com/$repo/$ref/$upstream"
 		if ! fetch_to "$url" "$WORK/$name" 2>/dev/null; then
-			echo "warn - could not fetch $url, skipping" >&2
 			continue
 		fi
 		if cmp -s "$WORK/$name" "$SRCDIR/external/$b"; then
@@ -163,6 +173,11 @@ rm -rf "$WORK"
 
 echo
 if [ "$failures" -eq 0 ]; then
+	if [ "$skipped" -gt 0 ]; then
+		echo "external/ is intact; $skipped component(s) could not be" \
+		    "checked against upstream"
+		exit 0
+	fi
 	echo "external/ is intact and up to date"
 	exit 0
 fi

@@ -9,15 +9,15 @@
 #     brew install --build-from-source ./pkg/homebrew/ldapstns.rb
 #
 # libstns is vendored into the repository under external/ rather than being a
-# submodule, so the tarball GitHub generates from a tag is now complete and
-# nothing here has to work around it.  The source is still fetched with git
-# rather than as that tarball only because a "url" wants a sha256 of a file
-# that exists, and there is no release yet; swap it for the tarball and its
-# checksum when the first tag is cut.
+# submodule, so the tarball GitHub generates from a tag is complete and this is
+# an ordinary formula.  While libstns was a submodule this had to fetch with
+# git and explain why, because a tag tarball carries a submodule's directory
+# and none of its contents.
 class Ldapstns < Formula
   desc "Serve an STNS directory to macOS Open Directory over LDAPv3"
   homepage "https://github.com/zakinko/ldapstns"
-  url "https://github.com/zakinko/ldapstns.git", tag: "v0.1.0"
+  url "https://github.com/zakinko/ldapstns/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "a35cf72cdd8547c7e5188e6f4fd3e0d8e3a8d38bed05b6583f72b0abb022d49a"
   license "BSD-2-Clause"
   head "https://github.com/zakinko/ldapstns.git", branch: "main"
 

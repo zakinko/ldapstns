@@ -18,11 +18,11 @@
 # The last field is only needed for a component vendored from a subdirectory
 # of its repository, which cannot be found by basename alone.
 
-component libstns zakinko/libstns 2c95207d790f4b2b349d4aa4742219b53dd2313e 2026-08-14
+component libstns zakinko/libstns 07b0ca2a04249831d8e3ae5fd55b7ec30babd2c5 2026-08-14
 file      e05efd211c4e6d3d087bcfbaf34bc0960b6f795c7cd9a731bfd547949640c1cf bsd/libstns/man/stns-key-wrapper.8 man/stns-key-wrapper.8
 file      43c7fbc28780733166bc9f135156bffbf08a83db9de3c6a6986e6d6f18e3263c bsd/libstns/src/stns.h src/stns.h
 file      288567eb40de327f3c092d82a4ad9e8386d86ead27870ee70b3ff8b5b81e0877 bsd/libstns/src/stns_config.c src/stns_config.c
-file      e09edab20f894ae6480faec5cbbfb79326c0613e40fb806e49e3551e61eee522 bsd/libstns/src/stns_crypt.c src/stns_crypt.c
+file      d6c993f7ba7176ba723ba2c084c1714c16eb84a720898b7c0a464843ab2ff5a3 bsd/libstns/src/stns_crypt.c src/stns_crypt.c
 file      8515fd7522c765c4fd87175268cd69c5e960b83262f80f54d80605afd54fc3cc bsd/libstns/src/stns_entry.c src/stns_entry.c
 file      dd89004d643b48ce72fa021b5ad655feda6c7b4705ed0610ec3d347207c40903 bsd/libstns/src/stns_key_wrapper.c src/stns_key_wrapper.c
 file      fca95a0cd79fa74da6cef4714a3b2cfbf0709c47666ab6973fba166c20b8f155 bsd/libstns/src/stns_list.c src/stns_list.c

@@ -44,18 +44,42 @@
 /*
  * Wipe a buffer in a way the compiler is not allowed to remove.
  *
- * Four systems, two spellings: the BSDs have explicit_bzero(3) and macOS does
- * not, offering memset_s(3) instead.  A plain memset(3) is not a substitute -
- * the whole point is a write to memory that is dead immediately afterwards,
- * which is precisely what a compiler is entitled to delete.
+ * Five systems, three spellings.  OpenBSD, FreeBSD and DragonFly have
+ * explicit_bzero(3); NetBSD calls the same idea explicit_memset(3) and does
+ * not have the other name at all; macOS has neither and offers memset_s(3).
+ * A plain memset(3) is not a substitute - the whole point is a write to memory
+ * that is dead immediately afterwards, which is precisely what a compiler is
+ * entitled to delete.
  */
 static void
 stns_zero(void *p, size_t n)
 {
-#ifdef __APPLE__
+#if defined(__APPLE__)
 	(void)memset_s(p, n, 0, n);
+#elif defined(__NetBSD__)
+	(void)explicit_memset(p, 0, n);
 #else
 	explicit_bzero(p, n);
+#endif
+}
+
+/*
+ * Compare two buffers in time that does not depend on where they first differ.
+ *
+ * Same story as the wipe above, and the same reason for not writing it out
+ * here: a loop that accumulates differences into one variable is exactly what
+ * a compiler may turn back into an early exit.  NetBSD spells it
+ * consttime_memequal(3) and, unlike the others, returns true when the buffers
+ * are equal - so the sense is inverted here rather than at the call site,
+ * where getting it backwards would accept every password.
+ */
+static int
+stns_bcmp(const void *a, const void *b, size_t n)
+{
+#ifdef __NetBSD__
+	return !consttime_memequal(a, b, n);
+#else
+	return timingsafe_bcmp(a, b, n);
 #endif
 }
 
@@ -669,7 +693,7 @@ stns_crypt_check(const char *password, const char *hash)
 	if (strncmp(hash, "$6$", 3) == 0 || strncmp(hash, "$5$", 3) == 0) {
 		if (stns_crypt_hash(password, hash, computed, sizeof(computed)) != STNS_OK)
 			return STNS_NG;
-		if (strlen(computed) == strlen(hash) && timingsafe_bcmp(computed, hash, strlen(hash)) == 0)
+		if (strlen(computed) == strlen(hash) && stns_bcmp(computed, hash, strlen(hash)) == 0)
 			rv = STNS_OK;
 		stns_zero(computed, sizeof(computed));
 		return rv;
@@ -689,7 +713,7 @@ stns_crypt_check(const char *password, const char *hash)
 	{
 		const char *r = crypt(password, hash);
 
-		if (r != NULL && strlen(r) == strlen(hash) && timingsafe_bcmp(r, hash, strlen(hash)) == 0)
+		if (r != NULL && strlen(r) == strlen(hash) && stns_bcmp(r, hash, strlen(hash)) == 0)
 			rv = STNS_OK;
 	}
 	return rv;

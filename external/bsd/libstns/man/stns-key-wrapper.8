@@ -1,0 +1,155 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026 zakinko
+.\"
+.Dd August 13, 2026
+.Dt STNS-KEY-WRAPPER 8
+.Os
+.Sh NAME
+.Nm stns-key-wrapper
+.Nd print a user's SSH public keys from an STNS directory
+.Sh SYNOPSIS
+.Nm
+.Ar user
+.Sh DESCRIPTION
+.Nm
+looks
+.Ar user
+up in the STNS API and writes their SSH public keys to standard output, one per
+line.
+It is meant to be used as
+.Xr sshd_config 5 Ns 's
+.Sy AuthorizedKeysCommand :
+.Bd -literal -offset indent
+AuthorizedKeysCommand     /usr/local/bin/stns-key-wrapper
+AuthorizedKeysCommandUser nobody
+.Ed
+.Pp
+This is the one part of STNS support that needs nothing at all from the
+operating system's directory machinery -
+.Xr sshd 8
+runs a command and reads its output, and every system it runs on can do that.
+So the same program is installed by
+.Xr nss_stns 8
+on
+.Nx ,
+.Fx
+and
+.Dx ,
+by
+.Xr ypstns 8
+on
+.Ox ,
+and by
+.Xr ldapstns 8
+on macOS; it works identically on all of them, including on machines where
+none of those is installed and the accounts are purely local.
+.Pp
+Configuration is read from
+.Xr stns.conf 5 ,
+the same file the rest of STNS uses.
+.Pp
+.Nm
+runs as the user named by
+.Sy AuthorizedKeysCommandUser ,
+which must therefore be able to read
+.Xr stns.conf 5 .
+Where that file holds a credential and must not be world readable, run
+.Xr cache-stnsd 8
+and point
+.Sy [cached]
+at its socket instead; the daemon then owns the credential and
+.Nm
+never needs it.
+.Sh USING STNS FOR KEYS ALONE
+It is a perfectly good arrangement to install this program and nothing else.
+.Pp
+Accounts are created locally, with
+.Xr useradd 8
+or
+.Xr sysadminctl 8 ,
+groups stay in
+.Xr group 5 ,
+and STNS supplies only the SSH keys.
+No directory backend is configured at all - no
+.Xr ypstns 8 ,
+no
+.Xr ldapstns 8 ,
+no
+.Xr nss_stns 8 -
+so nothing on the machine can resolve a name that is not local, and only
+accounts that exist locally can log in.
+That is not a restriction that has to be enforced anywhere; it is simply what
+happens when the only thing installed is a program
+.Xr sshd 8
+runs.
+.Pp
+.Xr sshd_config 5
+puts local keys first:
+.Sy AuthorizedKeysCommand
+is tried after
+.Sy AuthorizedKeysFile
+and is not run at all if a matching key was found there.
+So an existing
+.Pa authorized_keys
+keeps working, and a directory can be introduced one account at a time.
+.Pp
+Passwords are a different matter and this program is no help with them.
+Verifying a local account's password is done against the hash in
+.Xr master.passwd 5 ,
+or on macOS against the local directory node, and having STNS answer that
+question instead would need an authentication module - a
+.Xr login.conf 5
+style
+.Pa /usr/libexec/auth/login_stns
+on
+.Ox ,
+or a PAM module on macOS.
+Neither exists.
+Nor would either be straightforward: STNS deployments generally store SHA-512
+crypt hashes, which macOS's
+.Xr crypt 3
+cannot verify at all and which
+.Ox Ns 's
+.Xr crypt_checkpass 3
+handles only alongside its own preferred bcrypt.
+Keys are the path that works.
+.Sh EXIT STATUS
+.Nm
+exits 0 whenever it was able to answer at all, including when it has no keys to
+print.
+.Pp
+That is deliberate and is not the same as "it worked".
+.Xr sshd 8
+runs this once per authentication attempt for every account on the machine,
+local ones included, so a user the directory has never heard of is an ordinary
+outcome and not an error.
+The same goes for an API server that is unreachable: refusing to answer would
+be no more secure, since
+.Xr sshd 8
+falls back to
+.Pa authorized_keys
+either way, and would turn a brief outage into an unreadable log.
+.Pp
+It exits 1 only when it could not have answered anybody: a
+.Ar user
+outside the character set STNS permits, or a configuration file that cannot be
+read or parsed.
+.Sh EXAMPLES
+Check what
+.Xr sshd 8
+would be given, without involving
+.Xr sshd 8 :
+.Bd -literal -offset indent
+stns-key-wrapper alice
+.Ed
+.Sh SEE ALSO
+.Xr sshd_config 5 ,
+.Xr stns.conf 5 ,
+.Xr ldapstns 8 ,
+.Xr sshd 8 ,
+.Xr ypstns 8
+.Pp
+.Lk https://stns.jp/ "STNS"
+.Sh AUTHORS
+.An zakinko Aq Mt zakinko@snowrabbit.org

@@ -27,7 +27,7 @@ PYTHON=${PYTHON:-python3}
 MAKE=${MAKE:-make}
 WORK=${WORK:-/tmp/ldapstns_integration}
 
-MOCK=$SRCDIR/libstns/tests/mock_stns_server.py
+MOCK=$SRCDIR/external/bsd/libstns/tests/mock_stns_server.py
 CONF=$WORK/etc/ldapstns.conf
 URI=ldap://127.0.0.1:$LDAP_PORT
 
@@ -456,13 +456,13 @@ uid: stnsuser
 EOF
 
 # userPassword has Octet String syntax, so ldapsearch(1) always writes it out
-# base64 encoded whatever is in it.  The value below is $6$stnssalt$0123456789abcdef,
+# base64 encoded whatever is in it.  The value below is $6$stnssalt$OIMtoFferfvDRURYFOfno07xGCvtuODAKpR8zK4wOUL0oRwqKXqB6kv96hFKeeb9UCZTR40OaUBzAMP.QqIgi1,
 # which is what the mock server serves for this user.
 check "and it may read the hash" \
 	ldapsearch -x -LLL -o ldif-wrap=no -H "$URI" -D "cn=reader,dc=stns" -w sekrit \
 	-b "dc=stns" "(uid=stnshash)" userPassword <<'EOF'
 dn: uid=stnshash,cn=users,dc=stns
-userPassword:: JDYkc3Ruc3NhbHQkMDEyMzQ1Njc4OWFiY2RlZg==
+userPassword:: JDYkc3Ruc3NhbHQkT0lNdG9GZmVyZnZEUlVSWUZPZm5vMDd4R0N2dHVPREFLcFI4eks0d09VTDBvUndxS1hxQjZrdjk2aEZLZWViOVVDWlRSNDBPYVVCekFNUC5RcUlnaTE=
 EOF
 
 echo "== fetching over TLS =="

@@ -253,6 +253,6 @@ BSD-2-Clause です。`LICENSE` を参照してください。
 
 | | |
 | --- | --- |
-| [libstns](https://github.com/zakinko/libstns) | この下にある STNS API クライアント。submodule |
+| [libstns](https://github.com/zakinko/libstns) | この下にある STNS API クライアント。`external/` に vendor |
 | [nss_stns](https://github.com/zakinko/nss_stns) | NetBSD・FreeBSD・DragonFly 向け。`nsswitch(5)` モジュール |
 | [ypstns](https://github.com/zakinko/ypstns) | OpenBSD 向け。YP サーバー |

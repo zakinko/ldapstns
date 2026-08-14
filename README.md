@@ -254,6 +254,6 @@ BSD-2-Clause. See `LICENSE`.
 
 | | |
 | --- | --- |
-| [libstns](https://github.com/zakinko/libstns) | the STNS API client underneath this, as a submodule |
+| [libstns](https://github.com/zakinko/libstns) | the STNS API client underneath this, vendored into `external/` |
 | [nss_stns](https://github.com/zakinko/nss_stns) | the same thing for NetBSD, FreeBSD and DragonFly, as an `nsswitch(5)` module |
 | [ypstns](https://github.com/zakinko/ypstns) | the same thing for OpenBSD, as a YP server |

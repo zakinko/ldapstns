@@ -11,9 +11,11 @@
 #	make PREFIX=/opt/homebrew		Apple Silicon Homebrew
 #	make PREFIX=$(brew --prefix)		either, if brew is installed
 #
-# libstns is a submodule and is compiled straight into this build rather than
-# being built and linked as a library of its own; that is how all three
-# consumers use it, so that each keeps its own flags.
+# libstns is vendored under external/ rather than being a submodule, and its
+# sources are compiled straight into this build rather than built and linked as
+# a library of their own - so that this repository keeps its own flags, and so
+# that a release tarball is self-contained.  "make vendor" refreshes the copy;
+# see tests/vendor_libstns.sh.
 
 PREFIX?=	/usr/local
 SYSCONFDIR?=	$(PREFIX)/etc
@@ -22,7 +24,10 @@ MANDIR?=	$(PREFIX)/share/man
 EXAMPLESDIR?=	$(PREFIX)/share/examples/ldapstns
 LAUNCHDDIR?=	$(PREFIX)/share/ldapstns
 
-LIBSTNS=	libstns
+LIBSTNS=	external/bsd/libstns
+LIBSTNS_SRC?=	../libstns
+PARSON=		external/mit/parson
+TOMLC99=	external/mit/tomlc99
 
 PROG=		ldapstns
 KEY_WRAPPER=	stns-key-wrapper
@@ -33,8 +38,8 @@ CFLAGS?=	-O2 -pipe
 WARNS=		-Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes \
 		-Wpointer-arith -Wno-unused-parameter
 CPPFLAGS+=	-Isrc -I$(LIBSTNS)/src \
-		-I$(LIBSTNS)/external/mit/parson \
-		-I$(LIBSTNS)/external/mit/tomlc99 \
+		-I$(PARSON) \
+		-I$(TOMLC99) \
 		-DSTNS_PRODUCT=\"ldapstns\" \
 		-DSTNS_CONFDIR=\"$(SYSCONFDIR)\" \
 		-DLDAPSTNS_CONFDIR=\"$(SYSCONFDIR)\"
@@ -47,8 +52,8 @@ CORE_OBJS=	$(LIBSTNS)/src/stns_config.o \
 		$(LIBSTNS)/src/stns_entry.o \
 		$(LIBSTNS)/src/stns_lookup.o \
 		$(LIBSTNS)/src/stns_list.o \
-		$(LIBSTNS)/external/mit/parson/parson.o \
-		$(LIBSTNS)/external/mit/tomlc99/toml.o
+		$(PARSON)/parson.o \
+		$(TOMLC99)/toml.o
 
 PROG_OBJS=	src/ldapstns.o \
 		src/conf.o \
@@ -74,7 +79,7 @@ all: $(PROG) $(KEY_WRAPPER)
 $(PROG): $(PROG_OBJS) $(CORE_OBJS)
 	$(CC) -o $@ $(PROG_OBJS) $(CORE_OBJS) $(LDFLAGS) $(LIBS)
 
-# The same program all three STNS clients install; it is in the submodule
+# The same program all three STNS clients install; it comes from libstns
 # because sshd needs nothing from the system's directory machinery to run it.
 $(KEY_WRAPPER): $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS)
 	$(CC) -o $@ $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
@@ -93,8 +98,8 @@ asan:
 		$(LIBSTNS)/src/stns_config.c $(LIBSTNS)/src/stns_request.c \
 		$(LIBSTNS)/src/stns_entry.c $(LIBSTNS)/src/stns_lookup.c \
 		$(LIBSTNS)/src/stns_list.c \
-		$(LIBSTNS)/external/mit/parson/parson.c \
-		$(LIBSTNS)/external/mit/tomlc99/toml.c \
+		$(PARSON)/parson.c \
+		$(TOMLC99)/toml.c \
 		$(LDFLAGS) $(LIBS) -o $(TEST)-asan
 	./$(TEST)-asan
 
@@ -111,6 +116,16 @@ integration:
 opendirectory:
 	sh tests/opendirectory.sh
 
+# Check the vendored code under external/ against external/MANIFEST.  Add
+# --upstream and it also asks github whether the recorded revisions are still
+# current, which needs the network.
+external:
+	sh tests/check_external.sh
+
+# Refresh the vendored copy of libstns from a checkout of it.
+vendor:
+	sh tests/vendor_libstns.sh $(LIBSTNS_SRC)
+
 # Check that the ident line in the sample configurations is really substituted.
 ident:
 	sh tests/check_ident.sh
@@ -123,7 +138,7 @@ install: all
 	$(INSTALL) -m 444 man/ldapstns.conf.5 $(DESTDIR)$(MANDIR)/man5/ldapstns.conf.5
 	$(INSTALL) -d $(DESTDIR)$(MANDIR)/man8
 	$(INSTALL) -m 444 man/ldapstns.8 $(DESTDIR)$(MANDIR)/man8/ldapstns.8
-	# From the submodule, because the program it documents is from there too.
+	# From the vendored copy, because the program it documents is too.
 	$(INSTALL) -m 444 $(LIBSTNS)/man/stns-key-wrapper.8 \
 		$(DESTDIR)$(MANDIR)/man8/stns-key-wrapper.8
 	$(INSTALL) -d $(DESTDIR)$(EXAMPLESDIR)
@@ -150,4 +165,4 @@ deinstall:
 clean:
 	rm -f $(OBJS) $(PROG) $(KEY_WRAPPER) $(TEST) $(TEST)-asan
 
-.PHONY: all test asan integration opendirectory ident install deinstall clean
+.PHONY: all test asan integration opendirectory external vendor ident install deinstall clean

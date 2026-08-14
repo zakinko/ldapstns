@@ -1,9 +1,16 @@
+# Anchored with a leading slash, all of them.
+#
+# An unanchored name matches every path component of that name, not just the
+# one at the top: in the sibling repository an unanchored "ypstns" swallowed
+# etc/rc.d/ypstns and the whole of pkg/openbsd/net/ypstns, and nothing noticed
+# until a packing list check ran in CI.  Nothing here collides today, and the
+# anchor is what keeps that true.
 *.o
-ldapstns
-stns-key-wrapper
-ber_test
-ber_test-asan
 *.core
 *.dSYM/
+/ldapstns
+/stns-key-wrapper
+/ber_test
+/ber_test-asan
 __pycache__/
 *.pyc

@@ -18,7 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           # check_ident.sh builds a git archive of HEAD, which needs the
           # commit rather than just the tree.
           fetch-depth: 0
@@ -30,6 +29,8 @@ jobs:
           echo "== build =="
           make
           ls -l ldapstns stns-key-wrapper
+          echo "== the vendored code matches external/MANIFEST =="
+          make external
           echo "== unit tests =="
           make test
           echo "== unit tests under AddressSanitizer / UBSan =="
@@ -47,7 +48,7 @@ jobs:
         run: |
           set -e
           plutil -lint launchd/jp.stns.ldapstns.plist
-          for page in man/*.5 man/*.8 libstns/man/*.8; do
+          for page in man/*.5 man/*.8 external/bsd/libstns/man/*.8; do
             echo "== $page =="
             # "referenced manual not found" only means the page is for
             # something this runner has no manual for, which is true of

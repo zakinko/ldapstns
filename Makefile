@@ -11,11 +11,12 @@
 #	make PREFIX=/opt/homebrew		Apple Silicon Homebrew
 #	make PREFIX=$(brew --prefix)		either, if brew is installed
 #
-# libstns is vendored under external/ rather than being a submodule, and its
-# sources are compiled straight into this build rather than built and linked as
-# a library of their own - so that this repository keeps its own flags, and so
-# that a release tarball is self-contained.  "make vendor" refreshes the copy;
-# see tests/vendor_libstns.sh.
+# The STNS API client - the configuration, the HTTP, the cache, the circuit
+# breaker and the marshalling - is in src/ beside the daemon rather than shared
+# from anywhere.  It was a library for a while and is not one any more: nothing
+# linked it, and an upstream for two programs cost a repository, a manifest and
+# a commit in three places to change one line.  The same code is in nss_stns
+# and in ypstns, each owning its copy the way a port owns what it builds.
 
 PREFIX?=	/usr/local
 SYSCONFDIR?=	$(PREFIX)/etc
@@ -24,8 +25,6 @@ MANDIR?=	$(PREFIX)/share/man
 EXAMPLESDIR?=	$(PREFIX)/share/examples/ldapstns
 LAUNCHDDIR?=	$(PREFIX)/share/ldapstns
 
-LIBSTNS=	external/bsd/libstns
-LIBSTNS_SRC?=	../libstns
 PARSON=		external/mit/parson
 TOMLC99=	external/mit/tomlc99
 
@@ -44,7 +43,7 @@ INSTALL?=	install
 CFLAGS?=	-O2 -pipe
 WARNS=		-Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes \
 		-Wpointer-arith -Wno-unused-parameter
-CPPFLAGS+=	-Isrc -I$(LIBSTNS)/src \
+CPPFLAGS+=	-Isrc \
 		-I$(PARSON) \
 		-I$(TOMLC99) \
 		-DSTNS_PRODUCT=\"ldapstns\" \
@@ -53,13 +52,13 @@ CPPFLAGS+=	-Isrc -I$(LIBSTNS)/src \
 LDFLAGS+=
 LIBS+=		-lcurl
 
-# The library, compiled here rather than linked from elsewhere.
-CORE_OBJS=	$(LIBSTNS)/src/stns_config.o \
-		$(LIBSTNS)/src/stns_request.o \
-		$(LIBSTNS)/src/stns_entry.o \
-		$(LIBSTNS)/src/stns_lookup.o \
-		$(LIBSTNS)/src/stns_list.o \
-		$(LIBSTNS)/src/stns_crypt.o \
+# The API client.  Every program below is built from these plus its own.
+CORE_OBJS=	src/stns_config.o \
+		src/stns_request.o \
+		src/stns_entry.o \
+		src/stns_lookup.o \
+		src/stns_list.o \
+		src/stns_crypt.o \
 		$(PARSON)/parson.o \
 		$(TOMLC99)/toml.o
 
@@ -73,9 +72,14 @@ PROG_OBJS=	src/ldapstns.o \
 
 TEST=		ber_test
 TEST_OBJS=	tests/ber_test.o
+# The API client's own tests.  ber_test covers the protocol this daemon
+# speaks; these two cover the half underneath it, which is the half that is
+# the same in all three STNS clients and so the half nobody's daemon tests.
+CLIENT_TEST=	stns_test
+CRYPT_TEST=	stns_crypt_test
 
 OBJS=		$(CORE_OBJS) $(PROG_OBJS) $(TEST_OBJS) \
-		$(LIBSTNS)/src/stns_key_wrapper.o
+		src/stns_key_wrapper.o
 
 all: $(PROG) $(KEY_WRAPPER) $(PAM_MODULE)
 
@@ -87,10 +91,11 @@ all: $(PROG) $(KEY_WRAPPER) $(PAM_MODULE)
 $(PROG): $(PROG_OBJS) $(CORE_OBJS)
 	$(CC) -o $@ $(PROG_OBJS) $(CORE_OBJS) $(LDFLAGS) $(LIBS)
 
-# The same program all three STNS clients install; it comes from libstns
-# because sshd needs nothing from the system's directory machinery to run it.
-$(KEY_WRAPPER): $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS)
-	$(CC) -o $@ $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+# The one piece of STNS support that needs nothing from the system's directory
+# machinery: sshd runs a command and reads its output.  All three STNS clients
+# install this same program.
+$(KEY_WRAPPER): src/stns_key_wrapper.o $(CORE_OBJS)
+	$(CC) -o $@ src/stns_key_wrapper.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
 
 # Compiled with -fPIC and linked as a dylib: the library objects above are
 # built for an executable, so the module gets its own copies rather than
@@ -98,12 +103,12 @@ $(KEY_WRAPPER): $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS)
 $(PAM_MODULE): src/pam_stns.c
 	$(CC) $(CFLAGS) $(WARNS) $(CPPFLAGS) -fPIC -dynamiclib -o $@ \
 		src/pam_stns.c \
-		$(LIBSTNS)/src/stns_config.c \
-		$(LIBSTNS)/src/stns_request.c \
-		$(LIBSTNS)/src/stns_entry.c \
-		$(LIBSTNS)/src/stns_lookup.c \
-		$(LIBSTNS)/src/stns_list.c \
-		$(LIBSTNS)/src/stns_crypt.c \
+		src/stns_config.c \
+		src/stns_request.c \
+		src/stns_entry.c \
+		src/stns_lookup.c \
+		src/stns_list.c \
+		src/stns_crypt.c \
 		$(PARSON)/parson.c \
 		$(TOMLC99)/toml.c \
 		$(LDFLAGS) $(LIBS) -lpam
@@ -112,20 +117,36 @@ $(PAM_MODULE): src/pam_stns.c
 $(TEST): $(TEST_OBJS) src/ber.o src/entry.o src/filter.o $(CORE_OBJS)
 	$(CC) -o $@ $(TEST_OBJS) src/ber.o src/entry.o src/filter.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
 
-test: $(TEST)
+$(CLIENT_TEST): tests/stns_test.o $(CORE_OBJS)
+	$(CC) -o $@ tests/stns_test.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+
+$(CRYPT_TEST): tests/crypt_test.o $(CORE_OBJS)
+	$(CC) -o $@ tests/crypt_test.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+
+test: $(TEST) $(CLIENT_TEST) $(CRYPT_TEST)
 	./$(TEST)
+	./$(CLIENT_TEST)
+	./$(CRYPT_TEST)
 
 asan:
 	$(CC) -g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer \
 		$(WARNS) $(CPPFLAGS) \
 		tests/ber_test.c src/ber.c src/entry.c src/filter.c \
-		$(LIBSTNS)/src/stns_config.c $(LIBSTNS)/src/stns_request.c \
-		$(LIBSTNS)/src/stns_entry.c $(LIBSTNS)/src/stns_lookup.c \
-		$(LIBSTNS)/src/stns_list.c \
+		src/stns_config.c src/stns_request.c \
+		src/stns_entry.c src/stns_lookup.c \
+		src/stns_list.c \
 		$(PARSON)/parson.c \
 		$(TOMLC99)/toml.c \
 		$(LDFLAGS) $(LIBS) -o $(TEST)-asan
 	./$(TEST)-asan
+	$(CC) -g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer \
+		$(WARNS) $(CPPFLAGS) \
+		tests/crypt_test.c src/stns_crypt.c \
+		src/stns_config.c src/stns_request.c src/stns_entry.c \
+		src/stns_lookup.c src/stns_list.c \
+		$(PARSON)/parson.c $(TOMLC99)/toml.c \
+		$(LDFLAGS) $(LIBS) -o $(CRYPT_TEST)-asan
+	./$(CRYPT_TEST)-asan
 
 # Drives the real daemon with ldapsearch(1) against the mock STNS server.
 # Needs no root: it listens on a high port in a scratch directory.
@@ -146,15 +167,11 @@ opendirectory:
 pam:
 	sh tests/pam.sh
 
-# Check the vendored code under external/ against external/MANIFEST.  Add
+# Check the bundled third party code against external/MANIFEST.  Add
 # --upstream and it also asks github whether the recorded revisions are still
 # current, which needs the network.
 external:
 	sh tests/check_external.sh
-
-# Refresh the vendored copy of libstns from a checkout of it.
-vendor:
-	sh tests/vendor_libstns.sh $(LIBSTNS_SRC)
 
 # Check that the ident line in the sample configurations is really substituted.
 ident:
@@ -171,8 +188,7 @@ install: all
 	$(INSTALL) -d $(DESTDIR)$(MANDIR)/man8
 	$(INSTALL) -m 444 man/ldapstns.8 $(DESTDIR)$(MANDIR)/man8/ldapstns.8
 	$(INSTALL) -m 444 man/pam_stns.8 $(DESTDIR)$(MANDIR)/man8/pam_stns.8
-	# From the vendored copy, because the program it documents is too.
-	$(INSTALL) -m 444 $(LIBSTNS)/man/stns-key-wrapper.8 \
+	$(INSTALL) -m 444 man/stns-key-wrapper.8 \
 		$(DESTDIR)$(MANDIR)/man8/stns-key-wrapper.8
 	$(INSTALL) -d $(DESTDIR)$(EXAMPLESDIR)
 	$(INSTALL) -m 444 ldapstns.conf.example $(DESTDIR)$(EXAMPLESDIR)/ldapstns.conf
@@ -198,6 +214,8 @@ deinstall:
 	rm -f $(DESTDIR)$(LAUNCHDDIR)/jp.stns.ldapstns.plist
 
 clean:
-	rm -f $(OBJS) $(PROG) $(KEY_WRAPPER) $(PAM_MODULE) $(TEST) $(TEST)-asan
+	rm -f $(OBJS) $(PROG) $(KEY_WRAPPER) $(PAM_MODULE) \
+		$(TEST) $(TEST)-asan $(CLIENT_TEST) \
+		$(CRYPT_TEST) $(CRYPT_TEST)-asan
 
-.PHONY: all test asan integration opendirectory pam external vendor ident install deinstall clean
+.PHONY: all test asan integration opendirectory pam external ident install deinstall clean

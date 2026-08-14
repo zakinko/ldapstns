@@ -233,7 +233,7 @@ void filter_describe(const ldap_filter *f, char *buf, size_t buflen);
 /*
  * The configuration of the daemon itself.  Everything about the API - the
  * endpoint, the credentials, the timeouts - is in stns.conf and belongs to
- * libstns; none of it appears here.
+ * the STNS API client; none of it appears here.
  */
 typedef struct ldapstns_conf ldapstns_conf;
 struct ldapstns_conf {

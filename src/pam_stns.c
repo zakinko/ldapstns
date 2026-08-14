@@ -27,9 +27,10 @@
  * screen matters, the account wants to be local, with STNS supplying only the
  * keys - see stns-key-wrapper(8).
  *
- * The comparison itself is libstns's, which carries its own SHA-crypt because
+ * The comparison itself is src/stns_crypt.c, which carries its own SHA-crypt
+ * because
  * crypt(3) here understands traditional DES and nothing else - and does not
- * say so, which is the more dangerous half.  See external/bsd/libstns/src/stns_crypt.c.
+ * say so, which is the more dangerous half.  See src/stns_crypt.c.
  */
 #include <sys/types.h>
 

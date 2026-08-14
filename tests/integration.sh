@@ -27,7 +27,7 @@ PYTHON=${PYTHON:-python3}
 MAKE=${MAKE:-make}
 WORK=${WORK:-/tmp/ldapstns_integration}
 
-MOCK=$SRCDIR/external/bsd/libstns/tests/mock_stns_server.py
+MOCK=$SRCDIR/tests/mock_stns_server.py
 CONF=$WORK/etc/ldapstns.conf
 URI=ldap://127.0.0.1:$LDAP_PORT
 

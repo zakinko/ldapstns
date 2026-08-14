@@ -6,7 +6,7 @@
  * ldapstns.conf: the daemon's own settings.
  *
  * Everything about the API - where it is, how to authenticate to it, how long
- * to wait for it - lives in stns.conf and is read by libstns.  What is here is
+ * to wait for it - lives in stns.conf and is read by src/stns_config.c.  What is here is
  * only what has no meaning outside this daemon: which address to listen on,
  * which suffix to serve, how often to refresh, and who may read the directory.
  *

@@ -97,7 +97,7 @@ auth required $SRCDIR/pam_stns.so
 EOF
 policy_written=yes
 
-$PYTHON external/bsd/libstns/tests/mock_stns_server.py "$STNS_PORT" >"$WORK/stns.log" 2>&1 &
+$PYTHON tests/mock_stns_server.py "$STNS_PORT" >"$WORK/stns.log" 2>&1 &
 stns_pid=$!
 i=0
 while [ "$i" -lt 100 ]; do
@@ -113,7 +113,8 @@ done
 echo "== through PAM =="
 
 # The fixture's stnshash carries a real SHA-512 crypt hash of the password
-# below.  libstns checks the hashing against published vectors; what is checked
+# below.  tests/crypt_test.c checks the hashing against published vectors;
+# what is checked
 # here is the module around it and OpenPAM's loading of it.
 check "the right password" ok \
 	"$WORK/pam_client" "$SERVICE" stnshash "correct horse battery staple"

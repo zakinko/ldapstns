@@ -8,11 +8,10 @@
 #
 #     brew install --build-from-source ./pkg/homebrew/ldapstns.rb
 #
-# libstns is vendored into the repository under external/ rather than being a
-# submodule, so the tarball GitHub generates from a tag is complete and this is
-# an ordinary formula.  While libstns was a submodule this had to fetch with
-# git and explain why, because a tag tarball carries a submodule's directory
-# and none of its contents.
+# An ordinary formula fetching an ordinary tarball.  It was a git clone for a
+# while, because the STNS API client underneath this was a submodule and a tag
+# tarball carries a submodule's directory and none of its contents.  The code
+# is in src/ now and the tarball is complete.
 class Ldapstns < Formula
   desc "Serve an STNS directory to macOS Open Directory over LDAPv3"
   homepage "https://github.com/zakinko/ldapstns"

@@ -3,7 +3,11 @@
  *
  * Copyright (c) 2026 zakinko
  *
- * libstns - an STNS API client for the BSDs and macOS.
+ * ldapstns - serve an STNS directory to macOS Open Directory over LDAPv3.
+ *
+ * The STNS API client: stns.conf, the HTTP, the cache, the circuit breaker
+ * and the marshalling.  The same code is in nss_stns and in the other STNS
+ * client, each repository owning its copy.
  *
  * This is the part of nss_stns that had nothing to do with nsswitch: reading
  * stns.conf, talking to the API over HTTP, caching the answers and turning the
@@ -42,7 +46,7 @@
  */
 #if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(__DragonFly__) && !defined(__OpenBSD__) &&                \
     !defined(__APPLE__)
-#error "libstns supports NetBSD, FreeBSD, DragonFly BSD, OpenBSD and macOS"
+#error "the STNS API client supports NetBSD, FreeBSD, DragonFly BSD, OpenBSD and macOS"
 #endif
 
 #define STNS_VERSION "0.1.0"
@@ -56,7 +60,7 @@
  * its own.
  */
 #ifndef STNS_PRODUCT
-#define STNS_PRODUCT "libstns"
+#define STNS_PRODUCT "ldapstns"
 #endif
 #define STNS_USER_AGENT STNS_PRODUCT "/" STNS_VERSION
 

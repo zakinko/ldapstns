@@ -192,7 +192,7 @@ AuthorizedKeysCommandUser nobody
 ```
 
 This is the same program `nss_stns` and `ypstns` install; it lives in
-`external/bsd/libstns` because every system can run it.
+`src/stns_key_wrapper.c`, because every system can run it.
 
 The keys are *also* served as `sshPublicKey` on each user entry, for anything
 that reads them out of LDAP directly.
@@ -269,6 +269,6 @@ BSD-2-Clause. See `LICENSE`.
 
 | | |
 | --- | --- |
-| `external/bsd/libstns` | the STNS API client underneath this, vendored in |
+| `src/stns_*.c` | the STNS API client underneath this |
 | [nss_stns](https://github.com/zakinko/nss_stns) | the same thing for NetBSD, FreeBSD and DragonFly, as an `nsswitch(5)` module |
 | [ypstns](https://github.com/zakinko/ypstns) | the same thing for OpenBSD, as a YP server |

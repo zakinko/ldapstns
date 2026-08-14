@@ -13,5 +13,8 @@
 /pam_stns.so
 /ber_test
 /ber_test-asan
+/stns_test
+/stns_crypt_test
+/stns_crypt_test-asan
 __pycache__/
 *.pyc

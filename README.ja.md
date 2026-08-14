@@ -193,7 +193,7 @@ AuthorizedKeysCommandUser nobody
 
 これは `nss_stns` と `ypstns` がインストールするのと同じプログラムです。どの
 システムでも動かせるので
-`external/bsd/libstns` に置いてあります。
+`src/stns_key_wrapper.c` に置いてあります。
 
 鍵は各ユーザーエントリの `sshPublicKey` としても配信するので、LDAP
 から直接読む仕組みにも対応できます。
@@ -268,6 +268,6 @@ BSD-2-Clause です。`LICENSE` を参照してください。
 
 | | |
 | --- | --- |
-| `external/bsd/libstns` | この下にある STNS API クライアント。vendor 済み |
+| `src/stns_*.c` | この下にある STNS API クライアント |
 | [nss_stns](https://github.com/zakinko/nss_stns) | NetBSD・FreeBSD・DragonFly 向け。`nsswitch(5)` モジュール |
 | [ypstns](https://github.com/zakinko/ypstns) | OpenBSD 向け。YP サーバー |

@@ -1,0 +1,195 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026 zakinko
+.\"
+.Dd August 13, 2026
+.Dt LDAPSTNS.CONF 5
+.Os
+.Sh NAME
+.Nm ldapstns.conf
+.Nd configuration file for ldapstns
+.Sh DESCRIPTION
+.Nm
+holds the settings of
+.Xr ldapstns 8
+itself.
+Everything about the STNS API - where it is, how to authenticate to it, how
+long to wait for it - is in
+.Xr stns.conf 5
+instead, which is read by
+.Xr stns-key-wrapper 8
+as well and can be copied unchanged from a machine running any other STNS
+client.
+.Pp
+The file is TOML, as
+.Xr stns.conf 5
+is.
+Every key has a working default and the file itself is optional; a key that is
+present and not listed below is reported to
+.Xr syslogd 8
+and ignored, so a misspelling does not quietly leave the daemon serving
+something nobody asked for.
+.Pp
+.Nm
+is not a
+.Xr launchd.plist 5 .
+That file says how to start the program, which is a different question from
+what the program should do, and macOS keeps the two apart as well.
+.Sh SETTINGS
+.Bl -tag -width Ds
+.It Ic listen No = Qq Ar address
+.It Ic listen No = Ql ["address", "address"]
+One address, or a list of them.
+Either family; the default is both loopbacks,
+.Qq 127.0.0.1
+and
+.Qq ::1 .
+.Pp
+Both, because on this system
+.Qq localhost
+resolves to
+.Li ::1
+before it resolves to
+.Li 127.0.0.1 :
+a daemon listening only on the IPv4 address is one that anybody who ran
+.Dq dsconfigldap -a localhost
+cannot reach, with nothing anywhere to say why.
+.Pp
+An address that cannot be bound is reported and skipped, so a machine with
+IPv6 turned off still gets its IPv4 listener; only failing to bind every one
+of them stops the daemon.
+It must be an address and not a hostname - this setting says which socket to
+open, which a name resolving to several things does not.
+.Pp
+The loopback, and it should stay that way.
+.Xr ldapstns 8
+has no transport security - see the StartTLS paragraph in
+.Xr ldapstns 8 -
+and its purpose is to be reached by
+.Xr opendirectoryd 8
+on the same machine.
+.It Ic port No = Ar number
+Default 389.
+Binding it needs root, which is given up immediately afterwards, or launchd
+socket activation, which avoids needing it at all.
+.It Ic suffix No = Qq Ar dn
+The naming context to serve.
+Default
+.Qq dc=stns .
+.Pp
+This is discovered rather than configured on the macOS side:
+.Pa /System/Library/OpenDirectory/Mappings/RFC2307.plist
+leaves the search base as
+.Qq %! ,
+which means
+.Xr opendirectoryd 8
+reads
+.Sy namingContexts
+from the root DSE, and this is the value it finds there.
+It need not correspond to anything outside the machine.
+Users are served below
+.Ql cn=users
+and groups below
+.Ql cn=groups .
+.It Ic user No = Qq Ar name
+The unprivileged user to become after binding the socket.
+Default
+.Qq nobody .
+.Pp
+.Xr ldapstns 8
+refuses to run as root, and verifies the change took effect rather than
+assuming it.
+Under launchd the question does not arise: the
+.Sy Sockets
+key in the job description has launchd bind the port before the job starts, so
+the daemon can be started unprivileged and never holds root at all.
+.It Ic interval No = Ar seconds
+How often to re-read the directory from the API.
+Default 60, minimum 10.
+.Pp
+A refresh happens between connections and never while a client is waiting, so
+this trades freshness against load on the API server and nothing else.
+If a refresh fails the previous directory is kept and served.
+.It Ic bind_dn No = Qq Ar dn
+.It Ic bind_password No = Qq Ar password
+Require a client to bind as this DN with this password before it is answered.
+Neither is set by default, and setting one without the other is an error.
+.Pp
+Without them the directory is open to any client that can reach the socket,
+which on the loopback interface means every process on the machine.
+That is usually the right trade: nothing served - names, ids, home directories,
+shells, SSH public keys - is secret, and it is the difference between pointing
+Directory Utility at the daemon in two fields and in four.
+.Pp
+With them, an anonymous client is refused with
+.Sy insufficientAccessRights ,
+and
+.Xr opendirectoryd 8
+has to be given the same credentials
+.Pq Directory Utility, LDAPv3, Edit, "Use authentication when connecting" .
+An anonymous bind still succeeds, because RFC 4513 says it must; it simply
+authenticates nobody.
+.It Ic expose_password No = Ar true | false
+Serve the password hash as
+.Sy userPassword .
+Default false.
+.Pp
+.Xr ldapstns 8
+refuses to start if this is set without a
+.Ic bind_dn .
+This is not a warning that can be ignored: a loopback socket is reachable by
+every process on the machine, and serving crypt hashes to anonymous clients on
+one would amount to a world-readable shadow file.
+.Pp
+Even with a
+.Ic bind_dn
+it is rarely the answer it looks like.
+macOS cannot verify the SHA-512 hashes
+.Pq Li $6$ Ns ...
+that most STNS deployments store, so turning this on does not generally buy
+working password authentication.
+SSH keys, through
+.Xr stns-key-wrapper 8 ,
+are the path that works.
+.El
+.Sh FILES
+.Bl -tag -width /usr/local/etc/stns/client/stns.conf -compact
+.It Pa /usr/local/etc/ldapstns.conf
+The default location.
+On Apple Silicon, where Homebrew installs into
+.Pa /opt/homebrew ,
+it is
+.Pa /opt/homebrew/etc/ldapstns.conf .
+.It Pa /usr/local/etc/stns/client/stns.conf
+The STNS API client configuration.
+.It Pa /usr/local/share/examples/ldapstns/ldapstns.conf
+A commented sample.
+.El
+.Sh EXAMPLES
+The whole file, for a machine whose
+.Xr stns.conf 5
+is already in place:
+.Bd -literal -offset indent
+# nothing at all; the defaults serve dc=stns on 127.0.0.1:389
+.Ed
+.Pp
+A directory only
+.Xr opendirectoryd 8
+may read, refreshed every five minutes:
+.Bd -literal -offset indent
+suffix        = "dc=example,dc=com"
+interval      = 300
+bind_dn       = "cn=reader,dc=example,dc=com"
+bind_password = "correct horse battery staple"
+.Ed
+.Pp
+Check it before installing it:
+.Bd -literal -offset indent
+ldapstns -n -f ./ldapstns.conf
+.Ed
+.Sh SEE ALSO
+.Xr stns.conf 5 ,
+.Xr ldapstns 8 ,
+.Xr stns-key-wrapper 8
+.Sh AUTHORS
+.An zakinko Aq Mt zakinko@snowrabbit.org

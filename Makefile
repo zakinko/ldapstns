@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# ldapstns - a read-only LDAPv3 view of an STNS directory, for macOS.
+#
+# Written to the POSIX make subset.  make(1) on macOS is GNU make, not the BSD
+# make the rest of these repositories are built with, so this file uses neither
+# dialect's conditionals - which also rules out looking at uname(1) or asking
+# brew(1) where it put itself.  Hence:
+#
+#	make					Intel Homebrew, or /usr/local by hand
+#	make PREFIX=/opt/homebrew		Apple Silicon Homebrew
+#	make PREFIX=$(brew --prefix)		either, if brew is installed
+#
+# libstns is a submodule and is compiled straight into this build rather than
+# being built and linked as a library of its own; that is how all three
+# consumers use it, so that each keeps its own flags.
+
+PREFIX?=	/usr/local
+SYSCONFDIR?=	$(PREFIX)/etc
+BINDIR?=	$(PREFIX)/bin
+MANDIR?=	$(PREFIX)/share/man
+EXAMPLESDIR?=	$(PREFIX)/share/examples/ldapstns
+LAUNCHDDIR?=	$(PREFIX)/share/ldapstns
+
+LIBSTNS=	libstns
+
+PROG=		ldapstns
+KEY_WRAPPER=	stns-key-wrapper
+
+CC?=		cc
+INSTALL?=	install
+CFLAGS?=	-O2 -pipe
+WARNS=		-Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes \
+		-Wpointer-arith -Wno-unused-parameter
+CPPFLAGS+=	-Isrc -I$(LIBSTNS)/src \
+		-I$(LIBSTNS)/external/mit/parson \
+		-I$(LIBSTNS)/external/mit/tomlc99 \
+		-DSTNS_PRODUCT=\"ldapstns\" \
+		-DSTNS_CONFDIR=\"$(SYSCONFDIR)\" \
+		-DLDAPSTNS_CONFDIR=\"$(SYSCONFDIR)\"
+LDFLAGS+=
+LIBS+=		-lcurl
+
+# The library, compiled here rather than linked from elsewhere.
+CORE_OBJS=	$(LIBSTNS)/src/stns_config.o \
+		$(LIBSTNS)/src/stns_request.o \
+		$(LIBSTNS)/src/stns_entry.o \
+		$(LIBSTNS)/src/stns_lookup.o \
+		$(LIBSTNS)/src/stns_list.o \
+		$(LIBSTNS)/external/mit/parson/parson.o \
+		$(LIBSTNS)/external/mit/tomlc99/toml.o
+
+PROG_OBJS=	src/ldapstns.o \
+		src/conf.o \
+		src/ber.o \
+		src/entry.o \
+		src/filter.o \
+		src/snapshot.o \
+		src/ldap.o
+
+TEST=		ber_test
+TEST_OBJS=	tests/ber_test.o
+
+OBJS=		$(CORE_OBJS) $(PROG_OBJS) $(TEST_OBJS) \
+		$(LIBSTNS)/src/stns_key_wrapper.o
+
+all: $(PROG) $(KEY_WRAPPER)
+
+.SUFFIXES: .c .o
+
+.c.o:
+	$(CC) $(CFLAGS) $(WARNS) $(CPPFLAGS) -c $< -o $@
+
+$(PROG): $(PROG_OBJS) $(CORE_OBJS)
+	$(CC) -o $@ $(PROG_OBJS) $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+
+# The same program all three STNS clients install; it is in the submodule
+# because sshd needs nothing from the system's directory machinery to run it.
+$(KEY_WRAPPER): $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS)
+	$(CC) -o $@ $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+
+# The protocol tests need the protocol code but not the daemon around it.
+$(TEST): $(TEST_OBJS) src/ber.o src/entry.o src/filter.o $(CORE_OBJS)
+	$(CC) -o $@ $(TEST_OBJS) src/ber.o src/entry.o src/filter.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+
+test: $(TEST)
+	./$(TEST)
+
+asan:
+	$(CC) -g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer \
+		$(WARNS) $(CPPFLAGS) \
+		tests/ber_test.c src/ber.c src/entry.c src/filter.c \
+		$(LIBSTNS)/src/stns_config.c $(LIBSTNS)/src/stns_request.c \
+		$(LIBSTNS)/src/stns_entry.c $(LIBSTNS)/src/stns_lookup.c \
+		$(LIBSTNS)/src/stns_list.c \
+		$(LIBSTNS)/external/mit/parson/parson.c \
+		$(LIBSTNS)/external/mit/tomlc99/toml.c \
+		$(LDFLAGS) $(LIBS) -o $(TEST)-asan
+	./$(TEST)-asan
+
+# Drives the real daemon with ldapsearch(1) against the mock STNS server.
+# Needs no root: it listens on a high port in a scratch directory.
+integration:
+	sh tests/integration.sh
+
+# Drives the real opendirectoryd through the daemon, which is the only client
+# it exists for and the one no test without root can stand in for.  It changes
+# the machine's Open Directory configuration for the duration, so it refuses to
+# run unless asked twice - as root, and with LDAPSTNS_OD_TEST=yes.  See the
+# comment at the top of the script.
+opendirectory:
+	sh tests/opendirectory.sh
+
+# Check that the ident line in the sample configurations is really substituted.
+ident:
+	sh tests/check_ident.sh
+
+install: all
+	$(INSTALL) -d $(DESTDIR)$(BINDIR)
+	$(INSTALL) -m 555 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
+	$(INSTALL) -m 555 $(KEY_WRAPPER) $(DESTDIR)$(BINDIR)/$(KEY_WRAPPER)
+	$(INSTALL) -d $(DESTDIR)$(MANDIR)/man5
+	$(INSTALL) -m 444 man/ldapstns.conf.5 $(DESTDIR)$(MANDIR)/man5/ldapstns.conf.5
+	$(INSTALL) -d $(DESTDIR)$(MANDIR)/man8
+	$(INSTALL) -m 444 man/ldapstns.8 $(DESTDIR)$(MANDIR)/man8/ldapstns.8
+	# From the submodule, because the program it documents is from there too.
+	$(INSTALL) -m 444 $(LIBSTNS)/man/stns-key-wrapper.8 \
+		$(DESTDIR)$(MANDIR)/man8/stns-key-wrapper.8
+	$(INSTALL) -d $(DESTDIR)$(EXAMPLESDIR)
+	$(INSTALL) -m 444 ldapstns.conf.example $(DESTDIR)$(EXAMPLESDIR)/ldapstns.conf
+	$(INSTALL) -m 444 stns.conf.example $(DESTDIR)$(EXAMPLESDIR)/stns.conf
+	$(INSTALL) -d $(DESTDIR)$(SYSCONFDIR)/stns/client
+	# The job description is staged, not installed.  /Library/LaunchDaemons
+	# is the system's, not a package's, and putting a file there is the
+	# administrator's decision - see ldapstns(8).
+	$(INSTALL) -d $(DESTDIR)$(LAUNCHDDIR)
+	$(INSTALL) -m 444 launchd/jp.stns.ldapstns.plist \
+		$(DESTDIR)$(LAUNCHDDIR)/jp.stns.ldapstns.plist
+
+deinstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(PROG)
+	rm -f $(DESTDIR)$(BINDIR)/$(KEY_WRAPPER)
+	rm -f $(DESTDIR)$(MANDIR)/man5/ldapstns.conf.5
+	rm -f $(DESTDIR)$(MANDIR)/man8/ldapstns.8
+	rm -f $(DESTDIR)$(MANDIR)/man8/stns-key-wrapper.8
+	rm -f $(DESTDIR)$(EXAMPLESDIR)/ldapstns.conf
+	rm -f $(DESTDIR)$(EXAMPLESDIR)/stns.conf
+	rm -f $(DESTDIR)$(LAUNCHDDIR)/jp.stns.ldapstns.plist
+
+clean:
+	rm -f $(OBJS) $(PROG) $(KEY_WRAPPER) $(TEST) $(TEST)-asan
+
+.PHONY: all test asan integration opendirectory ident install deinstall clean

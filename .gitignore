@@ -1,0 +1,9 @@
+*.o
+ldapstns
+stns-key-wrapper
+ber_test
+ber_test-asan
+*.core
+*.dSYM/
+__pycache__/
+*.pyc

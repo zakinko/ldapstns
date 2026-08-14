@@ -1,0 +1,8 @@
+# git has no per-file revision number, so an RCS style ident line cannot be
+# expanded the way cvs(1) expanded $NetBSD$.  export-subst is the one
+# mechanism that needs no per-clone setup: git archive substitutes the
+# $Format:...$ placeholders when it builds a tarball, which is exactly what a
+# Homebrew formula fetches and unpacks.  A plain checkout shows the placeholder
+# unexpanded; tests/check_ident.sh keeps the substitution honest.
+stns.conf.example export-subst
+ldapstns.conf.example export-subst

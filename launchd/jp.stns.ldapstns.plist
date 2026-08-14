@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    SPDX-License-Identifier: BSD-2-Clause
+
+    The launchd job description for ldapstns(8).
+
+    Install it and load it with
+
+        sudo cp jp.stns.ldapstns.plist /Library/LaunchDaemons/
+        sudo launchctl bootstrap system /Library/LaunchDaemons/jp.stns.ldapstns.plist
+
+    and take it away again with
+
+        sudo launchctl bootout system/jp.stns.ldapstns
+
+    Homebrew installs this into share/ldapstns rather than into
+    /Library/LaunchDaemons directly: that directory belongs to the system and
+    what goes in it is the administrator's decision, not a package's.
+
+    On Apple Silicon, where Homebrew installs into /opt/homebrew, correct the
+    path in ProgramArguments below.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>jp.stns.ldapstns</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/ldapstns</string>
+	</array>
+
+	<!--
+	    The daemon never runs as root.
+
+	    Root would be needed for exactly one thing, binding port 389, and
+	    the Sockets key below has launchd do that instead: launchd opens
+	    the listener as root before this job starts and hands the
+	    descriptor over, so the job can be unprivileged from its first
+	    instruction.  Which is also why there is no need for the "user"
+	    setting in ldapstns.conf here - that one covers the other case,
+	    where the daemon is started by hand and binds its own socket.
+	-->
+	<key>UserName</key>
+	<string>nobody</string>
+	<key>GroupName</key>
+	<string>nobody</string>
+
+	<!--
+	    The sockets ldapstns picks up with launch_activate_socket(3), by
+	    this name.  Loopback only: this daemon has no transport security
+	    and is meant to be reached by opendirectoryd on the same machine.
+
+	    Both loopbacks, and both of them on purpose: "localhost" resolves
+	    to ::1 before 127.0.0.1 on this system, so a job listening only on
+	    the IPv4 address is one that anybody who ran
+	    "dsconfigldap -a localhost" cannot reach.  An array under one name
+	    is how launchd is asked for more than one, and both descriptors
+	    arrive together.
+	-->
+	<key>Sockets</key>
+	<dict>
+		<key>Listeners</key>
+		<array>
+			<dict>
+				<key>SockNodeName</key>
+				<string>127.0.0.1</string>
+				<key>SockServiceName</key>
+				<string>389</string>
+				<key>SockType</key>
+				<string>stream</string>
+				<key>SockFamily</key>
+				<string>IPv4</string>
+			</dict>
+			<dict>
+				<key>SockNodeName</key>
+				<string>::1</string>
+				<key>SockServiceName</key>
+				<string>389</string>
+				<key>SockType</key>
+				<string>stream</string>
+				<key>SockFamily</key>
+				<string>IPv6</string>
+			</dict>
+		</array>
+	</dict>
+
+	<!--
+	    Start with the machine, and start again if the daemon exits with a
+	    failure - which is what it does when the very first refresh cannot
+	    reach the API server, rather than coming up with an empty directory
+	    and answering "no such user" for everybody in it.
+
+	    A clean exit is left alone, so that launchctl bootout stops the
+	    service instead of racing it.
+	-->
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+
+	<!--
+	    No StandardOutPath or StandardErrorPath: everything the daemon has
+	    to say goes to syslog(3), which on macOS is the unified log.
+
+	        log show  --predicate 'process == "ldapstns"' --last 1h
+	        log stream --predicate 'process == "ldapstns"'
+	-->
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

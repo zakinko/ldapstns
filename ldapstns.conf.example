@@ -1,0 +1,79 @@
+# $SNOWRABBIT: ldapstns.conf,v $Format:%h %cs %an$ Exp $
+
+# configuration for ldapstns(8) itself.
+#
+# Everything about the STNS API - where it is, how to authenticate to it, how
+# long to wait for it - is in stns.conf next to this file, not here.  What is
+# here is only what has no meaning outside this daemon.
+#
+# Install it as ${SYSCONFDIR}/ldapstns.conf, which is /usr/local/etc on Intel
+# Homebrew and /opt/homebrew/etc on Apple Silicon.  Every key below has a
+# working default, so a machine whose stns.conf is already in place needs none
+# of them; a key that is present and not one of these is reported to syslog and
+# ignored.
+#
+# ldapstns -n reads this file, prints what it made of it, and exits.
+
+# Where to listen.  One address, or a list of them, of either family.
+#
+# The default is both loopbacks, and both of them on purpose: "localhost"
+# resolves to ::1 before 127.0.0.1 on macOS, so a daemon listening only on the
+# IPv4 address is one that anybody who ran "dsconfigldap -a localhost" cannot
+# reach, with nothing anywhere to say why.
+#
+# An address that cannot be bound is reported and skipped - a machine with
+# IPv6 turned off still gets its IPv4 listener - and only failing at all of
+# them stops the daemon.  It has to be an address rather than a hostname: this
+# says which socket to open, which a name resolving to several things does not.
+#
+# The loopback, and only the loopback.  This daemon has no transport security
+# and never will (see the StartTLS paragraph in ldapstns(8)); its whole purpose
+# is to be reached by opendirectoryd on the same machine.
+#listen = ["127.0.0.1", "::1"]
+#port   = 389
+
+# The naming context to serve.
+#
+# opendirectoryd is not configured with a search base: RFC2307.plist leaves it
+# as "%!", which means it reads namingContexts from the root DSE.  So this is
+# the value it will discover and use, and it need not correspond to anything
+# outside this machine.  Users appear under cn=users and groups under
+# cn=groups.
+#suffix = "dc=stns"
+
+# The unprivileged user to run as.
+#
+# Root is needed only to bind port 389, and is given up immediately afterwards.
+# Under launchd it is not needed at all: the Sockets key in
+# jp.stns.ldapstns.plist has launchd open the listener before the job starts,
+# so the daemon can be started unprivileged and never hold root for an instant.
+#user = "nobody"
+
+# How often to re-read the directory from the API, in seconds.  Ten is the
+# minimum.  A refresh happens between connections and never while a client is
+# waiting, so this is a freshness setting and not a performance one.
+#interval = 60
+
+# Require a bind before answering anything.
+#
+# Without these the directory is open to any client that can reach the socket,
+# which on the loopback interface means every process on the machine.  That is
+# usually the right trade: none of what is served - names, ids, home
+# directories, SSH public keys - is secret, and it is what makes pointing
+# Directory Utility at this daemon a two field exercise.
+#
+# With them, an anonymous client is refused with insufficientAccessRights, and
+# opendirectoryd has to be given the same DN and password (Directory Utility ->
+# LDAPv3 -> Edit -> "Use authentication when connecting").
+#bind_dn       = "cn=reader,dc=stns"
+#bind_password = "change me"
+
+# Serve the password hashes in userPassword.
+#
+# Off, and it will not turn on without a bind_dn: the daemon refuses to start
+# rather than put crypt hashes on a socket every process on the machine can
+# open.  Turning it on at all is only worth it if opendirectoryd is expected to
+# verify passwords itself, and note that macOS cannot check the SHA-512 hashes
+# ($6$...) that most STNS deployments store.  SSH keys, through
+# stns-key-wrapper, are the path that works.
+#expose_password = false

@@ -1,0 +1,289 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026 zakinko
+.\"
+.Dd August 13, 2026
+.Dt LDAPSTNS 8
+.Os
+.Sh NAME
+.Nm ldapstns
+.Nd serve an STNS directory to macOS Open Directory over LDAPv3
+.Sh SYNOPSIS
+.Nm
+.Op Fl dnv
+.Op Fl f Ar file
+.Sh DESCRIPTION
+.Nm
+presents the users and groups of an
+.Lk https://stns.jp/ STNS
+API server as a read-only LDAPv3 directory on the loopback interface, so that
+.Xr opendirectoryd 8
+can resolve them with the
+.Pa ldap.bundle
+module it already ships.
+.Pp
+macOS has nothing resembling
+.Xr nsswitch.conf 5 ,
+and it has no way to add a directory module either: every module in
+.Pa /System/Library/OpenDirectory/Modules
+is an Apple-signed bundle in a directory System Integrity Protection will not
+allow anything to be added to.
+What is left is to speak a protocol one of the shipped modules already
+understands, which is what
+.Nm
+does.
+.Pp
+The daemon holds the whole directory in memory and refreshes it on a timer.
+A search is answered out of that snapshot by a child process forked for the
+connection, so no client ever waits on an HTTP round trip, several clients are
+answered at once, and the only code an untrusted peer can reach can neither
+modify the directory nor outlive the connection.
+If a refresh fails, the previous snapshot is kept and served: an API server
+that is briefly unreachable must not empty the directory out from under
+everybody logged in.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl d
+Do not detach from the terminal
+.Pq which is the default in any case, see below
+and copy every log line to standard error.
+.It Fl f Ar file
+Read
+.Ar file
+instead of the default configuration file.
+.It Fl n
+Read the configuration, print what was made of it, and exit.
+The exit status is zero only if the configuration is one the daemon would
+agree to start with.
+.It Fl v
+Print the version and exit.
+.El
+.Ss Starting it
+.Nm
+does not put itself into the background.
+On macOS, starting and supervising a service is
+.Xr launchd 8 Ns 's
+job, and a program that forks itself away takes that job from it: launchd would
+watch the process that exited immediately rather than the one doing the work.
+A job description is installed as
+.Pa /usr/local/share/ldapstns/jp.stns.ldapstns.plist ;
+put it in place and load it with
+.Bd -literal -offset indent
+sudo cp /usr/local/share/ldapstns/jp.stns.ldapstns.plist /Library/LaunchDaemons/
+sudo launchctl bootstrap system /Library/LaunchDaemons/jp.stns.ldapstns.plist
+.Ed
+.Pp
+The job uses launchd socket activation: launchd binds port 389 itself, as root,
+before the job starts, and hands the descriptor over.
+That is why the plist can name an unprivileged
+.Sy UserName
+and the daemon never holds root at all.
+Started by hand instead,
+.Nm
+binds its own socket and then drops to the user named by
+.Sy user
+in the configuration file.
+.Ss Pointing Open Directory at it
+Add the node and put it in the search policy:
+.Bd -literal -offset indent
+sudo dsconfigldap -a 127.0.0.1
+.Ed
+.Pp
+No search base, no mapping and no schema file need to be given.
+.Pp
+macOS has two mappings, in
+.Pa /System/Library/OpenDirectory/Mappings :
+one for an Open Directory server, which looks for users under
+.Ql cn=users
+with five object classes combined with AND, and one for RFC 2307, which looks
+anywhere under the naming context for three combined with OR.
+Which of them is used is not something
+.Xr dsconfigldap 8
+can be told - it probes the server and decides, and it decides Open Directory.
+.Nm
+therefore serves the Open Directory layout, whose entries carry every class
+either mapping asks for and so satisfy both.
+.Pp
+Both leave the search base as
+.Qq %! ,
+meaning it is to be read from the root DSE - and
+.Nm
+advertises the configured suffix there as
+.Sy namingContexts .
+.Pp
+Check the result without involving the rest of the system:
+.Bd -literal -offset indent
+dscl /LDAPv3/127.0.0.1 -read /Users/alice
+dscl /LDAPv3/127.0.0.1 -list /Groups
+.Ed
+.Pp
+and then through the search policy, which is what everything else on the
+machine uses:
+.Bd -literal -offset indent
+id alice
+dscacheutil -q user -a name alice
+.Ed
+.Pp
+.Xr opendirectoryd 8
+caches aggressively.
+After changing anything, flush it:
+.Bd -literal -offset indent
+sudo dscacheutil -flushcache
+sudo killall -HUP opendirectoryd
+.Ed
+.Pp
+To undo the whole thing,
+.Bd -literal -offset indent
+sudo dsconfigldap -r 127.0.0.1
+.Ed
+.Ss What is served
+Users appear as
+.Ql uid=<name>,cn=users,<suffix>
+with the object classes
+.Sy posixAccount ,
+.Sy inetOrgPerson
+and
+.Sy shadowAccount ,
+carrying
+.Sy uid ,
+.Sy uidNumber ,
+.Sy gidNumber ,
+.Sy cn ,
+.Sy sn ,
+.Sy gecos ,
+.Sy description ,
+.Sy homeDirectory ,
+.Sy loginShell
+and, where the directory holds any,
+.Sy sshPublicKey .
+.Pp
+Groups appear as
+.Ql cn=<name>,cn=groups,<suffix>
+with the object class
+.Sy posixGroup ,
+carrying
+.Sy cn ,
+.Sy gidNumber
+and one
+.Sy memberUid
+per member.
+.Pp
+.Sy GeneratedUID
+is served as
+.Sy apple-generateduid ,
+in the scheme macOS uses for its own local records:
+FFFFEEEE-DDDD-CCCC-BBBB-AAAA followed by the uid in hexadecimal for a user,
+ABCDEFAB-CDEF-ABCD-EFAB-CDEF followed by the gid for a group.
+The Open Directory mapping reads it from there; the RFC 2307 mapping does not
+map it and macOS derives the same value for itself.
+Either way a user has the same UUID on every machine that resolves them here,
+and the same one they would have had as a local account.
+.Ss What is not served
+.Bl -tag -width Ds
+.It Password hashes
+.Sy userPassword
+is withheld unless
+.Sy expose_password
+is set, and that cannot be set without a
+.Sy bind_dn ;
+see
+.Xr ldapstns.conf 5 .
+A loopback socket is reachable by every process on the machine, so serving
+hashes to an anonymous client would amount to a world-readable shadow file.
+Note also that macOS cannot verify the SHA-512 hashes
+.Pq Li $6$ Ns ...
+most STNS deployments store, so turning it on is rarely the answer it looks
+like.
+Authenticating with SSH keys, through
+.Xr stns-key-wrapper 8 ,
+is the path that works.
+.It Writes
+Add, modify, delete, modifyDN and compare are not implemented.
+An operation
+.Nm
+does not recognise is answered with a notice of disconnection.
+.It StartTLS, and every other extended operation
+Refused with
+.Sy unwillingToPerform .
+The daemon listens on the loopback interface, where there is no network for a
+transport to be secured against, and a half-implemented negotiation would be
+worse than an honest refusal.
+.It SASL
+Refused with
+.Sy authMethodNotSupported .
+Simple bind only.
+.El
+.Ss SSH keys
+.Xr stns-key-wrapper 8
+is installed alongside and is unrelated to any of the above -
+.Xr sshd 8
+runs a command and reads its output, which needs nothing from Open Directory:
+.Bd -literal -offset indent
+AuthorizedKeysCommand     /usr/local/bin/stns-key-wrapper
+AuthorizedKeysCommandUser nobody
+.Ed
+.Sh SIGNALS
+.Bl -tag -width Ds
+.It Dv SIGHUP
+Re-read both configuration files and refresh the directory.
+A change to
+.Sy listen
+or
+.Sy port
+is reported and not applied; restart for those.
+If
+.Pa stns.conf
+can no longer be read - it is read at startup while still root, and may well
+be mode 600 - the settings already in memory are kept.
+.It Dv SIGTERM , Dv SIGINT
+Exit.
+.El
+.Sh FILES
+.Bl -tag -width /usr/local/etc/stns/client/stns.conf -compact
+.It Pa /usr/local/etc/ldapstns.conf
+This daemon's settings.
+.It Pa /usr/local/etc/stns/client/stns.conf
+The STNS API client configuration, shared with
+.Xr stns-key-wrapper 8 .
+.It Pa /usr/local/share/ldapstns/jp.stns.ldapstns.plist
+The launchd job description, staged for the administrator to install.
+.El
+.Sh EXIT STATUS
+.Ex -std
+In particular
+.Nm
+exits rather than starting up with an empty directory when the very first
+refresh fails.
+Answering
+.Qq no such user
+for everybody is a worse outcome than not running, and launchd will try again.
+.Sh EXAMPLES
+Check a configuration before installing it:
+.Bd -literal -offset indent
+ldapstns -n -f ./ldapstns.conf
+.Ed
+.Pp
+Run it in the foreground with everything on the terminal, on a port that needs
+no privileges:
+.Bd -literal -offset indent
+ldapstns -d -f ./ldapstns.conf
+ldapsearch -x -LLL -H ldap://127.0.0.1:11389 -b dc=stns "(uid=alice)"
+.Ed
+.Sh SEE ALSO
+.Xr dscacheutil 1 ,
+.Xr dscl 1 ,
+.Xr ldapsearch 1 ,
+.Xr odutil 1 ,
+.Xr launchd.plist 5 ,
+.Xr ldapstns.conf 5 ,
+.Xr dsconfigldap 8 ,
+.Xr opendirectoryd 8 ,
+.Xr stns-key-wrapper 8
+.Pp
+.Lk https://stns.jp/ "STNS"
+.Pp
+.Pa /System/Library/OpenDirectory/Mappings/RFC2307.plist ,
+which is the specification the attributes above are chosen to meet.
+.Sh AUTHORS
+.An zakinko Aq Mt zakinko@snowrabbit.org

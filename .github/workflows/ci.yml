@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The runner image drifts underneath us - a new macOS brings a new
+  # opendirectoryd, a new mandoc and sometimes a new ldapsearch - so build and
+  # test on a schedule as well, not only when something here changes.
+  schedule:
+    - cron: '31 5 * * 1'
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # check_ident.sh builds a git archive of HEAD, which needs the
+          # commit rather than just the tree.
+          fetch-depth: 0
+
+      - name: Build and test
+        run: |
+          set -e
+          sw_vers
+          echo "== build =="
+          make
+          ls -l ldapstns stns-key-wrapper
+          echo "== unit tests =="
+          make test
+          echo "== unit tests under AddressSanitizer / UBSan =="
+          make asan
+          echo "== integration tests, driven by ldapsearch(1) =="
+          make integration
+          echo "== the ident line survives git archive =="
+          make ident
+
+      # These are the two files whose format is macOS's rather than ours, and
+      # both have a checker on the machine already.  A plist that does not
+      # parse is a service that never starts, and neither launchctl nor
+      # anything else would say why.
+      - name: Check the launchd job description and the manual pages
+        run: |
+          set -e
+          plutil -lint launchd/jp.stns.ldapstns.plist
+          for page in man/*.5 man/*.8 libstns/man/*.8; do
+            echo "== $page =="
+            # "referenced manual not found" only means the page is for
+            # something this runner has no manual for, which is true of
+            # ldapstns itself until it is installed.
+            mandoc -T lint "$page" 2>&1 \
+              | grep -v 'referenced manual not found' \
+              | grep -v 'outdated mandoc.db' > lint.out || true
+            cat lint.out
+            test ! -s lint.out
+          done
+
+      # Last, because it runs as root and rebuilds the tree, and because it is
+      # the one step that reconfigures the machine.  The runner is thrown away
+      # afterwards; the script puts the node back regardless.
+      - name: Drive it through opendirectoryd
+        run: sudo sh -c 'LDAPSTNS_OD_TEST=yes make opendirectory'
+
+      - name: Check the Homebrew formula parses
+        run: |
+          set -e
+          # Not brew audit: that wants the formula in a tap with a released
+          # tag behind it.  Ruby's own syntax check catches the mistake that
+          # actually happens, which is a typo nobody notices until an install
+          # fails on somebody else's machine.
+          ruby -c pkg/homebrew/ldapstns.rb
+
+  # Runs on the host rather than in the macOS runner: it is a question about
+  # the repository, not about the system, and the answer is the same anywhere.
+  shellcheck:
+    name: shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -s sh tests/*.sh

@@ -1,0 +1,81 @@
+# $SNOWRABBIT: stns.conf,v $Format:%h %cs %an$ Exp $
+
+# client configuration for the STNS API, as read by ldapstns and by
+# stns-key-wrapper.  This is the same file the Linux client uses and the same
+# one nss_stns reads on the other BSDs; a copy from an existing host works
+# here unchanged.
+# A key not listed below is reported to syslog and otherwise ignored, so a
+# misspelling does not quietly leave you talking to localhost.
+
+# Install this as ${SYSCONFDIR}/stns/client/stns.conf, which is
+#   /usr/local/etc/stns/client/stns.conf    with Homebrew on Intel
+#   /opt/homebrew/etc/stns/client/stns.conf with Homebrew on Apple Silicon
+# /etc/stns/client/stns.conf is read as a fallback.
+#
+# ldapstns reads it once, at startup, while it is still root - so unlike on a
+# machine using nss_stns, where every process resolving a name has to be able
+# to read this file, here it can be kept to mode 600 with a token in it.
+
+# Base URL of the STNS API, including the version prefix.
+api_endpoint = "http://localhost:1104/v1"
+
+# Authentication.  Either a token (sent as "Authorization: token <value>")
+# or HTTP basic auth; leave both out for an unauthenticated server.
+#auth_token = "xxxxxxxxxxxxxxxx"
+#user       = "stns"
+#password   = "secret"
+
+# Extra request headers.
+#[http_headers]
+#X-Api-Key = "xxxxxxxx"
+
+# TLS.  ssl_verify may be turned off for a self signed server, but supplying
+# tls.ca is the better answer.
+#ssl_verify = true
+#[tls]
+#ca   = "/usr/local/etc/stns/client/ca.pem"
+#cert = "/usr/local/etc/stns/client/client.pem"
+#key  = "/usr/local/etc/stns/client/client-key.pem"
+
+#http_proxy    = "http://proxy.example.com:8080"
+#http_location = false
+
+# Request behaviour.  request_locktime is the circuit breaker: after a
+# connection failure no further requests are attempted for this many seconds.
+#request_timeout  = 10
+#request_retry    = 3
+#request_locktime = 60
+
+# On-disk response cache, kept per euid under cache_dir.
+#
+# Turning it off is the right answer for ldapstns and the default below says
+# so.  The daemon already holds the whole directory in memory and refreshes it
+# on its own interval, so the cache would only add a second, staler copy - and
+# it would be written by the unprivileged user the daemon drops to, which is
+# not the euid that created the directory.  stns-key-wrapper runs as whoever
+# sshd_config's AuthorizedKeysCommandUser says and is unaffected either way.
+cache = false
+#cache_dir          = "/var/db/stns"
+#cache_ttl          = 600
+#negative_cache_ttl = 10
+
+# Talk to cache-stnsd over its unix socket instead of the API directly.
+# When enabled, the daemon owns the credentials and the local cache.
+#[cached]
+#enable      = false
+#unix_socket = "/var/run/cache-stnsd.sock"
+
+# Offset every id coming from the API, to keep it clear of local accounts.
+#
+# macOS puts its own service accounts below 500 and the first human account at
+# 501, so a directory whose ids start at 1000 needs no shift; one that starts
+# lower does.
+#uid_shift = 0
+#gid_shift = 0
+
+# Hand the query to an external command rather than speaking HTTP.
+#query_wrapper = "/usr/local/bin/stns-query-wrapper"
+
+# stns-key-wrapper also emits the output of this command, which makes it
+# possible to migrate from another AuthorizedKeysCommand gradually.
+#chain_ssh_wrapper = "/usr/local/bin/other-key-command"

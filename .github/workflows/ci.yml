@@ -28,7 +28,7 @@ jobs:
           sw_vers
           echo "== build =="
           make
-          ls -l ldapstns stns-key-wrapper
+          ls -l ldapstns stns-key-wrapper pam_stns.so
           echo "== the vendored code matches external/MANIFEST =="
           make external
           echo "== unit tests =="
@@ -65,6 +65,9 @@ jobs:
       # afterwards; the script puts the node back regardless.
       - name: Drive it through opendirectoryd
         run: sudo sh -c 'LDAPSTNS_OD_TEST=yes make opendirectory'
+
+      - name: Authenticate through PAM
+        run: sudo sh -c 'LDAPSTNS_PAM_TEST=yes make pam'
 
       - name: Check the Homebrew formula parses
         run: |

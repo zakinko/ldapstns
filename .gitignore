@@ -10,6 +10,7 @@
 *.dSYM/
 /ldapstns
 /stns-key-wrapper
+/pam_stns.so
 /ber_test
 /ber_test-asan
 __pycache__/

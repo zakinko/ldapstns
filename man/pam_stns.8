@@ -1,0 +1,181 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026 zakinko
+.\"
+.Dd August 14, 2026
+.Dt PAM_STNS 8
+.Os
+.Sh NAME
+.Nm pam_stns
+.Nd authenticate a password against an STNS directory
+.Sh SYNOPSIS
+.Nm /usr/local/lib/pam/pam_stns.so
+.Op Cm debug
+.Sh DESCRIPTION
+.Nm
+is a PAM module that checks a password against the hash an
+.Lk https://stns.jp/ STNS
+API server holds for the user.
+.Pp
+.Xr ldapstns 8
+answers who somebody is.
+This answers whether a password is theirs, which on macOS is asked through a
+different system entirely - and, unlike on the BSDs, through two of them:
+.Bl -column "Open Directory authentication" "the login window" -offset indent
+.It Sy PAM Ta Xr sshd 8 , Xr su 1 , Xr sudo 8
+.It Sy Open Directory Ta the login window
+.El
+.Pp
+This module covers the first and not the second.
+.Sh THE LOGIN WINDOW
+Worth stating plainly, because it is the sort of thing that is otherwise found
+out at a locked screen:
+.Em a directory user set up this way can log in over ssh and not at the
+.Em keyboard .
+.Pp
+.Xr dsconfigldap 8
+configures a node with the Open Directory Server template, whose authentication
+modules are
+.Sy AppleODClientLDAP
+and
+.Sy AppleODClientPWS
+- Password Server and Kerberos.
+.Xr ldapstns 8
+speaks neither, and the alternative it could speak, a simple LDAP bind, is not
+what that template asks for.
+So the login window authenticates against something that is not there.
+.Pp
+Where the screen matters, the account wants to be local, with STNS supplying
+only the SSH keys; see
+.Xr stns-key-wrapper 8 .
+.Sh SETTING IT UP
+The module is named by absolute path.
+.Pa /usr/lib/pam
+is inside the signed system volume and nothing can be added to it, so there is
+nowhere else for a third-party module to live:
+.Bd -literal -offset indent
+# /etc/pam.d/sshd
+auth       optional       pam_krb5.so use_kcminit
+auth       sufficient     /usr/local/lib/pam/pam_stns.so try_first_pass
+auth       required       pam_opendirectory.so try_first_pass
+.Ed
+.Pp
+.Cm sufficient
+before
+.Xr pam_opendirectory 8
+rather than after it: a local account is answered by Open Directory without the
+API being asked at all when the module is listed after, but a directory user
+would then have already been refused.
+Listed before, a local account falls through - the module returns
+.Sy PAM_USER_UNKNOWN
+for a name the directory does not hold, which continues the stack - and a
+directory user is answered here.
+.Pp
+.Cm try_first_pass
+is handled by
+.Xr pam_get_authtok 3
+and means what it always means: use the password an earlier module already
+collected rather than prompting again.
+.Pp
+The same three lines work in
+.Pa /etc/pam.d/su
+and
+.Pa /etc/pam.d/sudo .
+.Pp
+The only option this module reads itself is
+.Cm debug ,
+which logs a line on success as well as on failure.
+.Sh HASHES
+The comparison is done by the same library
+.Xr ldapstns 8
+links, which carries its own SHA-256 crypt and SHA-512 crypt.
+It has to:
+.Xr crypt 3
+on macOS understands traditional DES and nothing else, and - the more
+dangerous half - does not say so.
+Handed
+.Ql $6$salt$... ,
+it takes
+.Ql $6
+as a two character salt and returns a perfectly ordinary looking DES hash.
+A module that compared that would refuse every password with nothing anywhere
+to say why.
+.Pp
+So
+.Ql $6$
+and
+.Ql $5$
+work here.
+.Ql $2b$
+does not, on this system, and is refused with
+.Dq no usable password hash
+in the log rather than as a wrong password.
+.Sh SECURITY
+.Bl -tag -width Ds
+.It Failure is always a refusal
+Every outcome that is not a positive match refuses.
+The reason goes to
+.Xr syslogd 8 ,
+and the caller is told only which of the four kinds it was.
+.It The password goes to the machine, not to the API
+Only the hash is fetched; the comparison happens here.
+The API is never sent a password and never asked whether one is correct.
+.It The on-disk cache and the circuit breaker are turned off
+Whatever
+.Xr stns.conf 5
+says.
+The cache would be written as whoever called PAM and read as somebody else, and
+the breaker would suppress the next minute of logins after one failed request -
+the right trade when every process on the machine is asking, and the wrong one
+when the question is whether to let a person in.
+.El
+.Sh FILES
+.Bl -tag -width /usr/local/etc/stns/client/stns.conf -compact
+.It Pa /usr/local/lib/pam/pam_stns.so
+The module.
+On Apple Silicon, where Homebrew installs into
+.Pa /opt/homebrew ,
+it is
+.Pa /opt/homebrew/lib/pam/pam_stns.so .
+.It Pa /usr/local/etc/stns/client/stns.conf
+The STNS API client configuration, shared with
+.Xr ldapstns 8
+and
+.Xr stns-key-wrapper 8 .
+.It Pa /etc/pam.d
+Where a policy naming this module goes.
+.El
+.Sh DIAGNOSTICS
+.Bl -tag -width PAM_AUTHINFO_UNAVAIL -compact
+.It Dv PAM_SUCCESS
+The password matched the hash the directory holds.
+.It Dv PAM_AUTH_ERR
+It did not, or the account is locked, or its hash is of a kind this system
+cannot read.
+.It Dv PAM_USER_UNKNOWN
+The directory does not hold that name, or the name is outside the character set
+STNS permits.
+The stack carries on, which is what lets a local account through.
+.It Dv PAM_AUTHINFO_UNAVAIL
+The API server could not be asked.
+Deliberately not
+.Dv PAM_AUTH_ERR :
+a module that reported an outage as a wrong password would turn one into an
+account lockout wherever a policy counts failures.
+.El
+.Sh SEE ALSO
+.Xr su 1 ,
+.Xr stns.conf 5 ,
+.Xr ldapstns 8 ,
+.Xr pam 8 ,
+.Xr sshd 8 ,
+.Xr stns-key-wrapper 8
+.Sh AUTHORS
+.An zakinko Aq Mt zakinko@snowrabbit.org
+.Sh CAVEATS
+Authentication needs the API server, every time.
+There is no cached credential and deliberately no fallback to one: a password
+checked against something this machine remembered is a password checked against
+something that may since have been revoked.
+An account that has to work while the directory is unreachable wants to be
+local.

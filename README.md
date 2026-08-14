@@ -70,7 +70,8 @@ UUID on every Mac, and the same one they would have as a local account.
 | launchd socket activation, so the daemon never runs as root | yes |
 | IPv4 and IPv6, both loopbacks by default | yes |
 | `bind_dn` to close the directory to other local processes | yes |
-| password authentication through Open Directory | see below |
+| password authentication for `sshd`, `su` and `sudo` | yes, `pam_stns` |
+| password authentication at the login window | no — see below |
 | writes, StartTLS, SASL | no, deliberately |
 
 ## How it works
@@ -204,9 +205,23 @@ loopback socket is reachable by every process on the machine; serving crypt
 hashes to anonymous clients on one is a world-readable shadow file with extra
 steps.
 
-Even with a `bind_dn` it is rarely worth it: macOS cannot verify the SHA-512
-hashes (`$6$…`) that most STNS deployments store. **Password authentication
-through Open Directory is not the supported path here — SSH keys are.**
+Even with a `bind_dn` it is rarely worth it. **Password authentication through
+Open Directory is not the path here — `pam_stns` is**, and the split is worth
+knowing before you rely on it:
+
+| | |
+| --- | --- |
+| `sshd`, `su`, `sudo` | PAM, so `pam_stns` answers |
+| the login window | Open Directory authentication, which asks Password Server and Kerberos — neither of which this daemon speaks |
+
+So a directory user set up this way logs in over ssh and **not at the
+keyboard**. Where the screen matters, make the account local and let STNS
+supply only the keys. See `pam_stns(8)`.
+
+The hashes are the other half of the story: macOS's `crypt(3)` reads neither
+SHA-512 crypt nor bcrypt, and does not say so — handed `$6$salt$…` it takes
+`$6` as a two-character salt and returns a plausible DES hash. `pam_stns`
+therefore carries its own SHA-crypt, checked against published vectors.
 
 **Writes.** Add, modify, delete, modifyDN and compare are not implemented. An
 operation the daemon does not recognise gets a notice of disconnection.

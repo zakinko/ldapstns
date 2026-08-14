@@ -32,6 +32,13 @@ TOMLC99=	external/mit/tomlc99
 PROG=		ldapstns
 KEY_WRAPPER=	stns-key-wrapper
 
+# The PAM module.  A dylib rather than a bundle, because that is what the
+# modules in /usr/lib/pam are and what OpenPAM's loader expects.  It goes under
+# PREFIX and is named by absolute path in /etc/pam.d, since /usr/lib/pam is
+# inside the signed system volume and nothing may be added to it.
+PAM_MODULE=	pam_stns.so
+PAMDIR?=	$(PREFIX)/lib/pam
+
 CC?=		cc
 INSTALL?=	install
 CFLAGS?=	-O2 -pipe
@@ -52,6 +59,7 @@ CORE_OBJS=	$(LIBSTNS)/src/stns_config.o \
 		$(LIBSTNS)/src/stns_entry.o \
 		$(LIBSTNS)/src/stns_lookup.o \
 		$(LIBSTNS)/src/stns_list.o \
+		$(LIBSTNS)/src/stns_crypt.o \
 		$(PARSON)/parson.o \
 		$(TOMLC99)/toml.o
 
@@ -69,7 +77,7 @@ TEST_OBJS=	tests/ber_test.o
 OBJS=		$(CORE_OBJS) $(PROG_OBJS) $(TEST_OBJS) \
 		$(LIBSTNS)/src/stns_key_wrapper.o
 
-all: $(PROG) $(KEY_WRAPPER)
+all: $(PROG) $(KEY_WRAPPER) $(PAM_MODULE)
 
 .SUFFIXES: .c .o
 
@@ -83,6 +91,22 @@ $(PROG): $(PROG_OBJS) $(CORE_OBJS)
 # because sshd needs nothing from the system's directory machinery to run it.
 $(KEY_WRAPPER): $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS)
 	$(CC) -o $@ $(LIBSTNS)/src/stns_key_wrapper.o $(CORE_OBJS) $(LDFLAGS) $(LIBS)
+
+# Compiled with -fPIC and linked as a dylib: the library objects above are
+# built for an executable, so the module gets its own copies rather than
+# sharing them.
+$(PAM_MODULE): src/pam_stns.c
+	$(CC) $(CFLAGS) $(WARNS) $(CPPFLAGS) -fPIC -dynamiclib -o $@ \
+		src/pam_stns.c \
+		$(LIBSTNS)/src/stns_config.c \
+		$(LIBSTNS)/src/stns_request.c \
+		$(LIBSTNS)/src/stns_entry.c \
+		$(LIBSTNS)/src/stns_lookup.c \
+		$(LIBSTNS)/src/stns_list.c \
+		$(LIBSTNS)/src/stns_crypt.c \
+		$(PARSON)/parson.c \
+		$(TOMLC99)/toml.c \
+		$(LDFLAGS) $(LIBS) -lpam
 
 # The protocol tests need the protocol code but not the daemon around it.
 $(TEST): $(TEST_OBJS) src/ber.o src/entry.o src/filter.o $(CORE_OBJS)
@@ -116,6 +140,12 @@ integration:
 opendirectory:
 	sh tests/opendirectory.sh
 
+# Authenticates through the real PAM against the real module.  Needs root, and
+# writes one policy file into /etc/pam.d for the duration, so it refuses to run
+# unless asked twice - as root and with LDAPSTNS_PAM_TEST=yes.
+pam:
+	sh tests/pam.sh
+
 # Check the vendored code under external/ against external/MANIFEST.  Add
 # --upstream and it also asks github whether the recorded revisions are still
 # current, which needs the network.
@@ -134,10 +164,13 @@ install: all
 	$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(INSTALL) -m 555 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
 	$(INSTALL) -m 555 $(KEY_WRAPPER) $(DESTDIR)$(BINDIR)/$(KEY_WRAPPER)
+	$(INSTALL) -d $(DESTDIR)$(PAMDIR)
+	$(INSTALL) -m 444 $(PAM_MODULE) $(DESTDIR)$(PAMDIR)/$(PAM_MODULE)
 	$(INSTALL) -d $(DESTDIR)$(MANDIR)/man5
 	$(INSTALL) -m 444 man/ldapstns.conf.5 $(DESTDIR)$(MANDIR)/man5/ldapstns.conf.5
 	$(INSTALL) -d $(DESTDIR)$(MANDIR)/man8
 	$(INSTALL) -m 444 man/ldapstns.8 $(DESTDIR)$(MANDIR)/man8/ldapstns.8
+	$(INSTALL) -m 444 man/pam_stns.8 $(DESTDIR)$(MANDIR)/man8/pam_stns.8
 	# From the vendored copy, because the program it documents is too.
 	$(INSTALL) -m 444 $(LIBSTNS)/man/stns-key-wrapper.8 \
 		$(DESTDIR)$(MANDIR)/man8/stns-key-wrapper.8
@@ -155,14 +188,16 @@ install: all
 deinstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(PROG)
 	rm -f $(DESTDIR)$(BINDIR)/$(KEY_WRAPPER)
+	rm -f $(DESTDIR)$(PAMDIR)/$(PAM_MODULE)
 	rm -f $(DESTDIR)$(MANDIR)/man5/ldapstns.conf.5
 	rm -f $(DESTDIR)$(MANDIR)/man8/ldapstns.8
+	rm -f $(DESTDIR)$(MANDIR)/man8/pam_stns.8
 	rm -f $(DESTDIR)$(MANDIR)/man8/stns-key-wrapper.8
 	rm -f $(DESTDIR)$(EXAMPLESDIR)/ldapstns.conf
 	rm -f $(DESTDIR)$(EXAMPLESDIR)/stns.conf
 	rm -f $(DESTDIR)$(LAUNCHDDIR)/jp.stns.ldapstns.plist
 
 clean:
-	rm -f $(OBJS) $(PROG) $(KEY_WRAPPER) $(TEST) $(TEST)-asan
+	rm -f $(OBJS) $(PROG) $(KEY_WRAPPER) $(PAM_MODULE) $(TEST) $(TEST)-asan
 
-.PHONY: all test asan integration opendirectory external vendor ident install deinstall clean
+.PHONY: all test asan integration opendirectory pam external vendor ident install deinstall clean

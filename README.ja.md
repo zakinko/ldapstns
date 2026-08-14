@@ -71,7 +71,8 @@ UUID を持ち、それはローカルアカウントだった場合と同じ値
 | launchd のソケットアクティベーション（root にならない） | ○ |
 | IPv4 / IPv6 の両対応。既定で両ループバック | ○ |
 | `bind_dn` によるディレクトリの閉鎖 | ○ |
-| Open Directory 経由のパスワード認証 | 後述 |
+| `sshd` / `su` / `sudo` のパスワード認証 | ○ `pam_stns` |
+| ログインウインドウのパスワード認証 | ✕ 後述 |
 | 書き込み、StartTLS、SASL | 意図的に非対応 |
 
 ## 仕組み
@@ -205,9 +206,23 @@ AuthorizedKeysCommandUser nobody
 crypt ハッシュを匿名クライアントに配るのは、手順が増えただけの
 world-readable な shadow ファイルです。
 
-`bind_dn` があっても、たいていは割に合いません。多くの STNS 運用が保存している
-SHA-512 ハッシュ (`$6$…`) を macOS は検証できないからです。**ここでは Open
-Directory 経由のパスワード認証はサポート経路ではありません。SSH 鍵が経路です。**
+`bind_dn` があっても、たいていは割に合いません。**ここでのパスワード認証の経路は
+Open Directory ではなく `pam_stns` です。** 頼る前に知っておくべき分かれ目が
+あります。
+
+| | |
+| --- | --- |
+| `sshd` / `su` / `sudo` | PAM を通るので `pam_stns` が答える |
+| ログインウインドウ | Open Directory 認証（Password Server と Kerberos を試す。どちらもこのデーモンは話さない） |
+
+つまりこの構成のディレクトリユーザーは、**ssh では入れて画面からは入れません**。
+画面が必要ならアカウントはローカルにし、STNS には鍵だけ供給させてください。
+`pam_stns(8)` を参照。
+
+ハッシュがもう半分の話です。macOS の `crypt(3)` は SHA-512 crypt も bcrypt も
+読めず、しかもそう言いません（`$6$salt$…` を渡すと `$6` を 2 文字ソルトと解釈して
+それらしい DES ハッシュを返します）。そのため `pam_stns` は自前の SHA-crypt を
+持ち、公開ベクタで検証しています。
 
 **書き込み。** add、modify、delete、modifyDN、compare は未実装です。認識できない
 操作には notice of disconnection を返します。
